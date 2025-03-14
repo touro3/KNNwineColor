@@ -1,110 +1,80 @@
 import pandas as pd
-
-url = '/Users/lucastourinho/WineQuality/winequality-merged.csv'
-arquivo = pd.read_csv(url)
-arquivo.head()
-
-# Informações gerais sobre o dataset
-print(arquivo.info())
-
-# Descrição estatística das variáveis numéricas
-print(arquivo.describe())
-
-print(arquivo['color'].value_counts())
-
+import numpy as np
 import matplotlib.pyplot as plt
-arquivo.hist(figsize=(20, 15), bins=20)
-plt.show()
+import seaborn as sns
+from collections import Counter
+from imblearn.over_sampling import SMOTE
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_curve, auc
 
-arquivo.boxplot(figsize=(20, 10), rot=90)
-plt.show()
+# =============================================================================
+# 1. Carregar e Preparar os Dados
+# =============================================================================
+data_path = 'winequality-merged.csv'  # Ajuste o caminho conforme necessário
+wine_data = pd.read_csv(data_path)
 
-# Check if 'color column exists in the DataFrame
-if 'color' in arquivo.columns:
-    print("Column 'color' exists in the DataFrame.")
-    # Replace 'red' with 0 and 'white' with 1
-    arquivo['color'] = arquivo['color'].replace('red', 0)
-    arquivo['color'] = arquivo['color'].replace('white', 1)
-else:
-    print("Column 'color' does not exist in the DataFrame.")
+# Converter a coluna 'color' para numérico: 0 = Red, 1 = White
+wine_data['color'] = wine_data['color'].map({'red': 0, 'white': 1})
 
-# Display the first few rows of the DataFrame
-print(arquivo.head())
+# Exibir a distribuição original das classes
+print("Distribuição original das classes:", Counter(wine_data['color']))
 
-y = arquivo['quality']
-X = arquivo.drop('quality', axis = 1)
+# =============================================================================
+# 2. Balanceamento de Classes com SMOTE
+# =============================================================================
+X = wine_data.drop(columns=['color'])  # Todas as features, exceto 'color'
+y = wine_data['color']
 
-from sklearn.model_selection import train_test_split
+smote = SMOTE(sampling_strategy='auto', k_neighbors=3, random_state=42)
+X_resampled, y_resampled = smote.fit_resample(X, y)
 
-# Assuming x is your feature set and y is the target variable
-x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+print("Distribuição após SMOTE:", Counter(y_resampled))
 
-from sklearn.ensemble import ExtraTreesRegressor
-modelo = ExtraTreesRegressor()
-modelo.fit(x_train, y_train)
+# =============================================================================
+# 3. Divisão dos Dados e Padronização
+# =============================================================================
+X_train, X_test, y_train, y_test = train_test_split(X_resampled, y_resampled, 
+                                                    test_size=0.2, random_state=42, stratify=y_resampled)
 
-resultado = modelo.score(x_test, y_test)
-print ("Acurácia:", resultado)
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled  = scaler.transform(X_test)
 
-# Adicionando a verificação da Precisão, Recall e F1-Score
-from sklearn.metrics import precision_score, recall_score, f1_score
+# =============================================================================
+# 4. Treinamento do Modelo KNN com Parâmetros Otimizados (via GridSearch)
+# =============================================================================
+# Parâmetros otimizados encontrados:
+# {'algorithm': 'auto', 'leaf_size': 10, 'metric': 'manhattan', 'n_neighbors': 10, 'p': 1, 'weights': 'distance'}
+knn = KNeighborsClassifier(n_neighbors=10, metric='manhattan', weights='distance', leaf_size=10, p=1)
+knn.fit(X_train_scaled, y_train)
 
-# Fazendo previsões no conjunto de teste
-y_pred = modelo.predict(x_test)
+# =============================================================================
+# 5. Avaliação do Modelo
+# =============================================================================
+# Previsões e métricas
+y_pred = knn.predict(X_test_scaled)
+accuracy = accuracy_score(y_test, y_pred)
+print("\n📌 Acurácia do modelo KNN após SMOTE:", accuracy)
+print("\n📌 Relatório de Classificação:\n", classification_report(y_test, y_pred, target_names=['Red', 'White']))
+print("📊 Matriz de Confusão:")
+print(confusion_matrix(y_test, y_pred))
 
-# Calculando as métricas
-precisao = precision_score(y_test, y_pred)
-recall = recall_score(y_test, y_pred)
-f1 = f1_score(y_test, y_pred)
+# =============================================================================
+# 6. Plotagem da Curva ROC
+# =============================================================================
+# Obter as probabilidades preditas para a classe positiva (1 - White)
+y_probs = knn.predict_proba(X_test_scaled)[:, 1]
 
-print("Precisão:", precisao)
-print("Recall:", recall)
-print("F1-score:", f1)
-
-from sklearn.metrics import confusion_matrix, classification_report
-
-"""
-Calculando e exibindo a matriz de confusão. A orientação padrão é a seguinte:
-[0,0]: Verdadeiros Negativos (VN) - Previsões corretamente identificadas como negativas.
-[0,1]: Falsos Positivos (FP) - Previsões incorretamente identificadas como positivas.
-[1,0]: Falsos Negativos (FN) - Previsões incorretamente identificadas como negativas.
-[1,1]: Verdadeiros Positivos (VP) - Previsões corretamente identificadas como positivas.
-"""
-
-conf_matrix = confusion_matrix(y_test, y_pred)
-print("Matriz de Confusão:")
-print(conf_matrix)
-
-"""
-Calculando e exibindo as métricas de classificação.
-Se algumas classes têm muito mais amostras do que outras, isso pode influenciar o desempenho e confiabilidade do modelo.
-
-O "support" refere-se à quantidade de ocorrências da classe específica no conjunto de dados, sendo útil para verificar desbalanceamentos.
-A "macro avg" calcula a média aritmética das métricas (precisão, recall, F1-score) para cada classe, sem considerar o número de instâncias em cada classe (support).
-A "weighted avg" calcula a média ponderada das métricas para cada classe, considerando o número de instâncias em cada classe (support).
-"""
-print("Relatório de Classsificação:")
-print(classification_report(y_test, y_pred))
-
-from sklearn.metrics import roc_curve, auc
-import matplotlib.pyplot as plt
-
-# Prever as probabilidades para os dados de teste.
-# Note que estamos interessados nas probabilidades da classe positiva (1), então usamos [:, 1].
-y_probs = modelo.predict_proba(x_test)[:, 1]
-
-# Calcular FPR, TPR, e limiares
+# Calcular FPR, TPR e limiares
 fpr, tpr, thresholds = roc_curve(y_test, y_probs)
-
-# Calcular a AUC
 roc_auc = auc(fpr, tpr)
 
 # Plotar a curva ROC
-plt.figure()
-plt.plot(fpr, tpr, color='darkorange', lw=2, label='ROC curve (area = %0.2f)' % roc_auc)
+plt.figure(figsize=(8, 6))
+plt.plot(fpr, tpr, color='darkorange', lw=2, label='ROC curve (area = {:.2f})'.format(roc_auc))
 plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-plt.xlim([0.0, 1.0])
-plt.ylim([0.0, 1.05])
 plt.xlabel('False Positive Rate')
 plt.ylabel('True Positive Rate')
 plt.title('Receiver Operating Characteristic')
