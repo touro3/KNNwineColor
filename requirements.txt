@@ -3,3 +3,4 @@ scikit-learn
 matplotlib
 imbalanced-learn
 ace-tools
+seaborn
